@@ -245,8 +245,8 @@ def _get_lora_moe_modules(state_dict: dict[str, Any]) -> set[str]:
 @torch.no_grad
 def get_merged_lora_ckpt(
     state_dict: dict[str, Any],
-    rank: int,
-    alpha: float,
+    rank: Union[int, dict[str, int]],
+    alpha: Union[float, dict[str, float]],
 ) -> dict[str, Any]:
     """
     Merge LoRA weights into the base model format for efficient inference.
@@ -258,8 +258,12 @@ def get_merged_lora_ckpt(
 
     Args:
         state_dict (dict[str, Any]): State dict from a model.
-        rank (int): The rank of LoRA matrices.
-        alpha (float): The alpha value used for scaling LoRA decompositions.
+        rank (Union[int, dict[str, int]]): The rank of LoRA matrices. Can be a single
+            int for uniform rank across all layers, or a dict mapping layer names to ranks
+            for per-layer configuration.
+        alpha (Union[float, dict[str, float]]): The alpha value used for scaling LoRA 
+            decompositions. Can be a single float for uniform alpha across all layers, 
+            or a dict mapping layer names to alpha values for per-layer configuration.
 
     Returns:
         dict[str, Any]: The merged state dict.
@@ -267,13 +271,22 @@ def get_merged_lora_ckpt(
     lora_modules = _get_lora_modules(state_dict)
     lora_moe_modules = _get_lora_moe_modules(state_dict)
     for module in lora_modules.union(lora_moe_modules):
+        # Resolve rank and alpha for this specific module
+        # Use default values for backward compatibility when dictionaries are provided
+        module_rank = resolve_lora_value(
+            rank, module, default_value=8 if isinstance(rank, dict) else None
+        )
+        module_alpha = resolve_lora_value(
+            alpha, module, default_value=16.0 if isinstance(alpha, dict) else None
+        )
+
         # TODO: we don't currently support DoRA for MoE layers
         if "experts" in module:
             for param in ["gate", "up", "down"]:
                 lora_a_weight = state_dict[f"{module}.lora_{param}_a"]
                 lora_b_weight = state_dict[f"{module}.lora_{param}_b"]
                 state_dict[f"{module}.{param}_proj"] += (
-                    (alpha / rank)
+                    (module_alpha / module_rank)
                     * lora_b_weight.transpose(1, 2)
                     @ lora_a_weight.transpose(1, 2)
                 ).transpose(1, 2)
@@ -289,7 +302,7 @@ def get_merged_lora_ckpt(
         if lora_magnitude is not None:
             base_weight = state_dict[f"{module}.weight"].to(lora_a_weight.dtype)
 
-            lora_weight = (alpha / rank) * lora_b_weight @ lora_a_weight
+            lora_weight = (module_alpha / module_rank) * lora_b_weight @ lora_a_weight
             merged_weight = base_weight + lora_weight
             weight_norm = torch.linalg.norm(base_weight + lora_weight, dim=1)
             mag_norm_scale = (lora_magnitude / weight_norm).view(-1, 1)
@@ -300,7 +313,7 @@ def get_merged_lora_ckpt(
         # Otherwise it is just vanilla LoRA
         else:
             state_dict[f"{module}.weight"] += (
-                (alpha / rank) * lora_b_weight @ lora_a_weight
+                (module_alpha / module_rank) * lora_b_weight @ lora_a_weight
             )
 
         del state_dict[f"{module}.lora_a.weight"]
