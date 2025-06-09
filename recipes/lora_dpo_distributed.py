@@ -12,7 +12,7 @@ from typing import Any, Optional
 from warnings import warn
 
 import torch
-from omegaconf import DictConfig, ListConfig
+from omegaconf import DictConfig, ListConfig, OmegaConf
 
 from torch import nn
 from torch.distributed import destroy_process_group, init_process_group
@@ -369,8 +369,8 @@ class LoRADPORecipeDistributed(FTRecipeInterface):
         self._apply_lora_to_output = getattr(cfg_model, "apply_lora_to_output", False)
 
         self._adapter_config = {
-            "r": self._lora_rank,
-            "lora_alpha": self._lora_alpha,
+            "r": OmegaConf.to_container(self._lora_rank) if OmegaConf.is_config(self._lora_rank) else self._lora_rank,
+            "lora_alpha": OmegaConf.to_container(self._lora_alpha) if OmegaConf.is_config(self._lora_alpha) else self._lora_alpha,
             "target_modules": get_lora_module_names(
                 self._lora_attn_modules,
                 self._apply_lora_to_mlp,
