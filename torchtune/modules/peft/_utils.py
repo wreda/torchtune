@@ -54,9 +54,67 @@ def resolve_lora_value(
         8
     """
     if isinstance(value, dict):
+        # Try direct lookup first
         if layer_name in value:
-            return value[layer_name]
-        elif default_value is not None:
+            result = value[layer_name]
+            # Convert DictConfig objects to Python primitives
+            if hasattr(result, '__float__') and not isinstance(result, (int, float)):
+                # This handles DictConfig values
+                try:
+                    return float(result) if '.' in str(result) else int(result)
+                except (ValueError, TypeError):
+                    return result
+            return result
+        
+        # Handle MLP component name mapping: gate_proj/down_proj/up_proj <-> w1/w2/w3
+        if ".mlp." in layer_name:
+            # Map state dict names to config names
+            alt_layer_name = layer_name
+            if ".mlp.gate_proj" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.gate_proj", ".mlp.w1")
+            elif ".mlp.down_proj" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.down_proj", ".mlp.w2") 
+            elif ".mlp.up_proj" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.up_proj", ".mlp.w3")
+            # Also try the reverse mapping for completeness
+            elif ".mlp.w1" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.w1", ".mlp.gate_proj")
+            elif ".mlp.w2" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.w2", ".mlp.down_proj")
+            elif ".mlp.w3" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.w3", ".mlp.up_proj")
+                
+            # Try the alternative name
+            if alt_layer_name in value and alt_layer_name != layer_name:
+                result = value[alt_layer_name]
+                # Convert DictConfig objects to Python primitives
+                if hasattr(result, '__float__') and not isinstance(result, (int, float)):
+                    try:
+                        return float(result) if '.' in str(result) else int(result)
+                    except (ValueError, TypeError):
+                        return result
+                return result
+                
+            # Also try fallback to whole MLP layer if component-specific config not found
+            mlp_layer_name = layer_name
+            if any(comp in layer_name for comp in [".gate_proj", ".down_proj", ".up_proj", ".w1", ".w2", ".w3"]):
+                # Extract the layer part: layers.X.mlp 
+                import re
+                match = re.match(r"(layers\.\d+\.mlp)", layer_name)
+                if match:
+                    mlp_layer_name = match.group(1)
+                    if mlp_layer_name in value:
+                        result = value[mlp_layer_name]
+                        # Convert DictConfig objects to Python primitives
+                        if hasattr(result, '__float__') and not isinstance(result, (int, float)):
+                            try:
+                                return float(result) if '.' in str(result) else int(result)
+                            except (ValueError, TypeError):
+                                return result
+                        return result
+        
+        # If still not found, use default value
+        if default_value is not None:
             return default_value
         else:
             raise ValueError(
@@ -65,6 +123,12 @@ def resolve_lora_value(
             )
     else:
         # Single value - backward compatible behavior
+        # Also handle DictConfig for single values
+        if hasattr(value, '__float__') and not isinstance(value, (int, float)):
+            try:
+                return float(value) if '.' in str(value) else int(value)
+            except (ValueError, TypeError):
+                return value
         return value
 
 
@@ -270,7 +334,15 @@ def get_merged_lora_ckpt(
     """
     lora_modules = _get_lora_modules(state_dict)
     lora_moe_modules = _get_lora_moe_modules(state_dict)
+    
+    print(f"DEBUG: rank type: {type(rank)}, value: {rank}")
+    print(f"DEBUG: alpha type: {type(alpha)}, value: {alpha}")
+    print(f"DEBUG: lora_modules: {lora_modules}")
+    print(f"DEBUG: lora_moe_modules: {lora_moe_modules}")
+    
     for module in lora_modules.union(lora_moe_modules):
+        print(f"DEBUG: Processing module: {module}")
+        
         # Resolve rank and alpha for this specific module
         # Use default values for backward compatibility when dictionaries are provided
         module_rank = resolve_lora_value(
@@ -279,6 +351,9 @@ def get_merged_lora_ckpt(
         module_alpha = resolve_lora_value(
             alpha, module, default_value=16.0 if isinstance(alpha, dict) else None
         )
+        
+        print(f"DEBUG: Resolved module_rank type: {type(module_rank)}, value: {module_rank}")
+        print(f"DEBUG: Resolved module_alpha type: {type(module_alpha)}, value: {module_alpha}")
 
         # TODO: we don't currently support DoRA for MoE layers
         if "experts" in module:
