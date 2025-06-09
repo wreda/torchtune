@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 from functools import partial
+from typing import Union
 
 from torchtune.models.llama3_1._component_builders import llama3_1, lora_llama3_1
 
@@ -84,8 +85,8 @@ def lora_llama3_1_8b(
     lora_attn_modules: list[LORA_ATTN_MODULES],
     apply_lora_to_mlp: bool = False,
     apply_lora_to_output: bool = False,
-    lora_rank: int = 8,
-    lora_alpha: float = 16,
+    lora_rank: Union[int, dict[str, int]] = 8,
+    lora_alpha: Union[float, dict[str, float]] = 16,
     lora_dropout: float = 0.0,
     use_dora: bool = False,
     quantize_base: bool = False,
@@ -141,8 +142,8 @@ def lora_llama3_1_70b(
     lora_attn_modules: list[LORA_ATTN_MODULES],
     apply_lora_to_mlp: bool = False,
     apply_lora_to_output: bool = False,
-    lora_rank: int = 8,
-    lora_alpha: float = 16,
+    lora_rank: Union[int, dict[str, int]] = 8,
+    lora_alpha: Union[float, dict[str, float]] = 16,
     lora_dropout: float = 0.0,
     use_dora: bool = False,
     quantize_base: bool = False,
@@ -198,8 +199,8 @@ def lora_llama3_1_405b(
     lora_attn_modules: list[LORA_ATTN_MODULES],
     apply_lora_to_mlp: bool = False,
     apply_lora_to_output: bool = False,
-    lora_rank: int = 8,
-    lora_alpha: float = 16,
+    lora_rank: Union[int, dict[str, int]] = 8,
+    lora_alpha: Union[float, dict[str, float]] = 16,
     lora_dropout: float = 0.0,
     quantize_base: bool = False,
 ) -> TransformerDecoder:

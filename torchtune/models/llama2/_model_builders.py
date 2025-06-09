@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Optional
+from typing import Optional, Union
 from functools import partial
 
 from torchtune.models.llama2._component_builders import llama2, lora_llama2, llama2_classifier, lora_llama2_classifier
@@ -66,8 +66,8 @@ def lora_llama2_7b(
     lora_attn_modules: list[LORA_ATTN_MODULES],
     apply_lora_to_mlp: bool = False,
     apply_lora_to_output: bool = False,
-    lora_rank: int = 8,
-    lora_alpha: float = 16,
+    lora_rank: Union[int, dict[str, int]] = 8,
+    lora_alpha: Union[float, dict[str, float]] = 16,
     lora_dropout: float = 0.0,
     use_dora: bool = False,
     quantize_base: bool = False,

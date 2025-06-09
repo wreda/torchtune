@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Optional
+from typing import Optional, Union
 
 from torchtune.data._prompt_templates import _get_prompt_template, _TemplateType
 
@@ -149,8 +149,8 @@ def lora_qwen2_7b(
     lora_attn_modules: list[LORA_ATTN_MODULES],
     apply_lora_to_mlp: bool = False,
     apply_lora_to_output: bool = False,
-    lora_rank: int = 8,
-    lora_alpha: float = 16,
+    lora_rank: Union[int, dict[str, int]] = 8,
+    lora_alpha: Union[float, dict[str, float]] = 16,
     lora_dropout: float = 0.0,
     use_dora: bool = False,
     quantize_base: bool = False,
@@ -170,8 +170,12 @@ def lora_qwen2_7b(
             Default: False
         apply_lora_to_output (bool): whether to apply LoRA to the model's final output projection.
             Default: False
-        lora_rank (int): rank of each low-rank approximation
-        lora_alpha (float): scaling factor for the low-rank approximation
+        lora_rank (Union[int, dict[str, int]]): rank of each low-rank approximation. Can be a single
+            int for uniform rank across all layers, or a dict mapping layer names to ranks for
+            per-layer configuration. Default: 8. Example: ``{"layers.0.attn.q_proj": 8, "layers.1.attn.v_proj": 16}``.
+        lora_alpha (Union[float, dict[str, float]]): scaling factor for the low-rank approximation.
+            Can be a single float for uniform alpha across all layers, or a dict mapping layer names
+            to alpha values for per-layer configuration. Default: 16. Example: ``{"layers.0.attn.q_proj": 16.0, "layers.1.attn.v_proj": 32.0}``.
         lora_dropout (float): dropout probability for the low-rank approximation. Default: 0.0
         quantize_base (bool): Whether to quantize base model weights
 

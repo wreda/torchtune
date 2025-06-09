@@ -1,0 +1,129 @@
+# Example configuration showing enhanced per-layer LoRA with MLP component-level granularity
+# for Llama 3 8B model (updated with new MLP component support)
+
+# Model Arguments
+model:
+  _component_: torchtune.models.llama3.lora_llama3_8b
+  lora_attn_modules: ['q_proj', 'v_proj', 'output_proj']
+  apply_lora_to_mlp: True
+  apply_lora_to_output: True
+  
+  # Enhanced per-layer and per-component LoRA configuration
+  # Now supports individual MLP components (w1, w2, w3) in addition to attention projections
+  lora_rank:
+    # Attention projections - layer-specific configuration
+    layers.0.attn.q_proj: 16     # Higher rank for critical first layer
+    layers.0.attn.v_proj: 8      
+    layers.0.attn.output_proj: 12
+    
+    layers.1.attn.q_proj: 14     
+    layers.1.attn.v_proj: 6
+    layers.1.attn.output_proj: 10
+    
+    # MLP components - individual component configuration (NEW FEATURE)
+    layers.0.mlp.w1: 20          # Gate projection - often needs higher capacity
+    layers.0.mlp.w2: 16          # Down projection 
+    layers.0.mlp.w3: 18          # Up projection - complement to gate
+    
+    layers.1.mlp.w1: 14          # Different strategy for deeper layers
+    layers.1.mlp.w2: 10
+    layers.1.mlp.w3: 12
+    
+    # Mixed approaches - can combine component-level and layer-level
+    layers.2.mlp: 8              # Uniform rank across all MLP components in layer 2
+    
+    layers.3.mlp.w1: 16          # Only customize some components in layer 3
+    layers.3.mlp.w2: 12          # w3 will use default fallback
+    
+    # Output projection
+    output: 24                   # Higher rank for final output
+    
+  lora_alpha:
+    # Corresponding alpha values for fine-grained control
+    layers.0.attn.q_proj: 32.0
+    layers.0.attn.v_proj: 16.0
+    layers.0.attn.output_proj: 24.0
+    
+    layers.1.attn.q_proj: 28.0
+    layers.1.attn.v_proj: 12.0
+    layers.1.attn.output_proj: 20.0
+    
+    # MLP component alphas (NEW FEATURE)
+    layers.0.mlp.w1: 40.0        # Higher alpha for gate projection
+    layers.0.mlp.w2: 32.0
+    layers.0.mlp.w3: 36.0
+    
+    layers.1.mlp.w1: 28.0
+    layers.1.mlp.w2: 20.0
+    layers.1.mlp.w3: 24.0
+    
+    # Uniform alpha for layer 2 MLP
+    layers.2.mlp: 16.0
+    
+    # Partial specification for layer 3 (others use defaults)
+    layers.3.mlp.w1: 32.0
+    layers.3.mlp.w2: 24.0
+    
+    # Output projection
+    output: 48.0
+  
+  lora_dropout: 0.05
+
+# Tokenizer
+tokenizer:
+  _component_: torchtune.models.llama3.llama3_tokenizer
+  path: /tmp/Meta-Llama-3-8B/original/tokenizer.model
+  max_seq_len: null
+
+checkpointer:
+  _component_: torchtune.training.FullModelMetaCheckpointer
+  checkpoint_dir: /tmp/Meta-Llama-3-8B/
+  checkpoint_files: [
+    consolidated.00.pth
+  ]
+  recipe_checkpoint: null
+  output_dir: /tmp/Meta-Llama-3-8B/
+  model_type: LLAMA3
+
+resume_from_checkpoint: False
+save_adapter_weights_only: False
+
+# Dataset and Sampler
+dataset:
+  _component_: torchtune.datasets.alpaca_dataset
+seed: null
+shuffle: True
+batch_size: 2
+
+# Optimizer and Scheduler
+optimizer:
+  _component_: torch.optim.AdamW
+  weight_decay: 0.01
+  lr: 3e-4
+
+lr_scheduler:
+  _component_: torchtune.training.lr_schedulers.get_cosine_schedule_with_warmup
+  num_warmup_steps: 100
+
+loss:
+  _component_: torch.nn.CrossEntropyLoss
+
+# Training
+epochs: 1
+max_steps_per_epoch: null
+gradient_accumulation_steps: 16
+compile: False
+
+# Logging
+output_dir: /tmp/lora_finetune_output/
+metric_logger:
+  _component_: torchtune.training.metric_logging.DiskLogger
+  log_dir: ${output_dir}
+log_every_n_steps: 1
+log_peak_memory_stats: False
+
+# Environment
+device: cuda
+dtype: bf16
+enable_activation_checkpointing: False
+enable_activation_offloading: False

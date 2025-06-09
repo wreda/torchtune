@@ -9,10 +9,128 @@ from typing import Any, Generator, Literal, Optional, Protocol, runtime_checkabl
 
 import torch
 from torch import nn
+from omegaconf import OmegaConf
 from torchtune.utils._logging import deprecate_parameter
 
 # Modules from MultiHeadAttention that LoRA can be applied to
 LORA_ATTN_MODULES = Literal["q_proj", "k_proj", "v_proj", "output_proj"]
+
+
+def resolve_lora_value(
+    value: Union[int, float, dict[str, Union[int, float]]],
+    layer_name: str,
+    default_value: Optional[Union[int, float]] = None,
+) -> Union[int, float]:
+    """
+    Resolve a LoRA parameter value (rank or alpha) for a specific layer.
+
+    This function supports both backward-compatible single values and the new
+    per-layer dictionary configuration. If a dictionary is provided, it looks
+    up the layer-specific value. If not found, it falls back to the default value.
+
+    Args:
+        value (Union[int, float, dict[str, Union[int, float]]]): The LoRA parameter value.
+            Can be a single int/float (backward compatible) or a dict mapping layer names to values.
+        layer_name (str): The name of the layer to resolve the value for.
+        default_value (Optional[Union[int, float]]): Default value to use if layer_name
+            is not found in the dictionary. If None and layer_name is not found,
+            raises ValueError.
+
+    Returns:
+        Union[int, float]: The resolved value for the specified layer.
+
+    Raises:
+        ValueError: If value is a dict, layer_name is not found, and no default_value is provided.
+
+    Example:
+        >>> # Single value (backward compatible)
+        >>> resolve_lora_value(8, "layers.0.attn.q_proj")
+        8
+
+        >>> # Per-layer dictionary with fallback
+        >>> config = {"layers.0.attn.q_proj": 16, "layers.1.attn.v_proj": 32}
+        >>> resolve_lora_value(config, "layers.0.attn.q_proj")
+        16
+        >>> resolve_lora_value(config, "layers.2.attn.q_proj", default_value=8)
+        8
+    """
+    if isinstance(value, dict) or OmegaConf.is_dict(value):
+        # Try direct lookup first
+        if layer_name in value:
+            result = value[layer_name]
+            # Convert DictConfig objects to Python primitives
+            if hasattr(result, '__float__') and not isinstance(result, (int, float)):
+                # This handles DictConfig values
+                try:
+                    return float(result) if '.' in str(result) else int(result)
+                except (ValueError, TypeError):
+                    return result
+            return result
+        
+        # Handle MLP component name mapping: gate_proj/down_proj/up_proj <-> w1/w2/w3
+        if ".mlp." in layer_name:
+            # Map state dict names to config names
+            alt_layer_name = layer_name
+            if ".mlp.gate_proj" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.gate_proj", ".mlp.w1")
+            elif ".mlp.down_proj" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.down_proj", ".mlp.w2") 
+            elif ".mlp.up_proj" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.up_proj", ".mlp.w3")
+            # Also try the reverse mapping for completeness
+            elif ".mlp.w1" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.w1", ".mlp.gate_proj")
+            elif ".mlp.w2" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.w2", ".mlp.down_proj")
+            elif ".mlp.w3" in layer_name:
+                alt_layer_name = layer_name.replace(".mlp.w3", ".mlp.up_proj")
+                
+            # Try the alternative name
+            if alt_layer_name in value and alt_layer_name != layer_name:
+                result = value[alt_layer_name]
+                # Convert DictConfig objects to Python primitives
+                if hasattr(result, '__float__') and not isinstance(result, (int, float)):
+                    try:
+                        return float(result) if '.' in str(result) else int(result)
+                    except (ValueError, TypeError):
+                        return result
+                return result
+                
+            # Also try fallback to whole MLP layer if component-specific config not found
+            mlp_layer_name = layer_name
+            if any(comp in layer_name for comp in [".gate_proj", ".down_proj", ".up_proj", ".w1", ".w2", ".w3"]):
+                # Extract the layer part: layers.X.mlp 
+                import re
+                match = re.match(r"(layers\.\d+\.mlp)", layer_name)
+                if match:
+                    mlp_layer_name = match.group(1)
+                    if mlp_layer_name in value:
+                        result = value[mlp_layer_name]
+                        # Convert DictConfig objects to Python primitives
+                        if hasattr(result, '__float__') and not isinstance(result, (int, float)):
+                            try:
+                                return float(result) if '.' in str(result) else int(result)
+                            except (ValueError, TypeError):
+                                return result
+                        return result
+        
+        # If still not found, use default value
+        if default_value is not None:
+            return default_value
+        else:
+            raise ValueError(
+                f"Layer '{layer_name}' not found in per-layer LoRA configuration "
+                f"and no default value provided. Available layers: {list(value.keys())}"
+            )
+    else:
+        # Single value - backward compatible behavior
+        # Also handle DictConfig for single values
+        if hasattr(value, '__float__') and not isinstance(value, (int, float)):
+            try:
+                return float(value) if '.' in str(value) else int(value)
+            except (ValueError, TypeError):
+                return value
+        return value
 
 
 @runtime_checkable
@@ -192,8 +310,8 @@ def _get_lora_moe_modules(state_dict: dict[str, Any]) -> set[str]:
 @torch.no_grad
 def get_merged_lora_ckpt(
     state_dict: dict[str, Any],
-    rank: int,
-    alpha: float,
+    rank: Union[int, dict[str, int]],
+    alpha: Union[float, dict[str, float]],
 ) -> dict[str, Any]:
     """
     Merge LoRA weights into the base model format for efficient inference.
@@ -205,22 +323,36 @@ def get_merged_lora_ckpt(
 
     Args:
         state_dict (dict[str, Any]): State dict from a model.
-        rank (int): The rank of LoRA matrices.
-        alpha (float): The alpha value used for scaling LoRA decompositions.
+        rank (Union[int, dict[str, int]]): The rank of LoRA matrices. Can be a single
+            int for uniform rank across all layers, or a dict mapping layer names to ranks
+            for per-layer configuration.
+        alpha (Union[float, dict[str, float]]): The alpha value used for scaling LoRA 
+            decompositions. Can be a single float for uniform alpha across all layers, 
+            or a dict mapping layer names to alpha values for per-layer configuration.
 
     Returns:
         dict[str, Any]: The merged state dict.
     """
     lora_modules = _get_lora_modules(state_dict)
     lora_moe_modules = _get_lora_moe_modules(state_dict)
+    
     for module in lora_modules.union(lora_moe_modules):
+        # Resolve rank and alpha for this specific module
+        # Use default values for backward compatibility when dictionaries are provided
+        module_rank = resolve_lora_value(
+            rank, module, default_value=8 if (isinstance(rank, dict) or OmegaConf.is_dict(rank)) else None
+        )
+        module_alpha = resolve_lora_value(
+            alpha, module, default_value=16.0 if (isinstance(alpha, dict) or OmegaConf.is_dict(alpha)) else None
+        )
+
         # TODO: we don't currently support DoRA for MoE layers
         if "experts" in module:
             for param in ["gate", "up", "down"]:
                 lora_a_weight = state_dict[f"{module}.lora_{param}_a"]
                 lora_b_weight = state_dict[f"{module}.lora_{param}_b"]
                 state_dict[f"{module}.{param}_proj"] += (
-                    (alpha / rank)
+                    (module_alpha / module_rank)
                     * lora_b_weight.transpose(1, 2)
                     @ lora_a_weight.transpose(1, 2)
                 ).transpose(1, 2)
@@ -236,7 +368,7 @@ def get_merged_lora_ckpt(
         if lora_magnitude is not None:
             base_weight = state_dict[f"{module}.weight"].to(lora_a_weight.dtype)
 
-            lora_weight = (alpha / rank) * lora_b_weight @ lora_a_weight
+            lora_weight = (module_alpha / module_rank) * lora_b_weight @ lora_a_weight
             merged_weight = base_weight + lora_weight
             weight_norm = torch.linalg.norm(base_weight + lora_weight, dim=1)
             mag_norm_scale = (lora_magnitude / weight_norm).view(-1, 1)
@@ -247,7 +379,7 @@ def get_merged_lora_ckpt(
         # Otherwise it is just vanilla LoRA
         else:
             state_dict[f"{module}.weight"] += (
-                (alpha / rank) * lora_b_weight @ lora_a_weight
+                (module_alpha / module_rank) * lora_b_weight @ lora_a_weight
             )
 
         del state_dict[f"{module}.lora_a.weight"]
