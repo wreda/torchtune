@@ -1,0 +1,110 @@
+# Example configuration showing per-layer LoRA with MLP component-level granularity
+# for Llama 3.1 8B model
+
+# Model Arguments
+model:
+  _component_: torchtune.models.llama3_1.lora_llama3_1_8b
+  lora_attn_modules: ['q_proj', 'v_proj']
+  apply_lora_to_mlp: True
+  apply_lora_to_output: False
+  
+  # Per-layer and per-component LoRA configuration
+  # Supports both attention projections and individual MLP components
+  lora_rank:
+    # Attention projections - layer-specific configuration
+    layers.0.attn.q_proj: 16     # Higher rank for first layer query projection
+    layers.0.attn.v_proj: 8      # Lower rank for first layer value projection
+    layers.1.attn.q_proj: 12     # Different rank for second layer
+    layers.1.attn.v_proj: 6
+    
+    # MLP components - individual component configuration
+    layers.0.mlp.w1: 20          # Gate projection (SiLU activation)
+    layers.0.mlp.w2: 16          # Down projection
+    layers.0.mlp.w3: 18          # Up projection
+    
+    layers.1.mlp.w1: 14          # Different ranks for second layer MLP
+    layers.1.mlp.w2: 10
+    layers.1.mlp.w3: 12
+    
+    # Can also use layer.mlp for uniform rank across all MLP components in a layer
+    layers.2.mlp: 8              # Applies rank 8 to w1, w2, w3 of layer 2
+    
+  lora_alpha:
+    # Corresponding alpha values for each component
+    layers.0.attn.q_proj: 32.0
+    layers.0.attn.v_proj: 16.0
+    layers.1.attn.q_proj: 24.0
+    layers.1.attn.v_proj: 12.0
+    
+    # MLP component alphas
+    layers.0.mlp.w1: 40.0
+    layers.0.mlp.w2: 32.0
+    layers.0.mlp.w3: 36.0
+    
+    layers.1.mlp.w1: 28.0
+    layers.1.mlp.w2: 20.0
+    layers.1.mlp.w3: 24.0
+    
+    # Uniform alpha for layer 2 MLP
+    layers.2.mlp: 16.0
+  
+  lora_dropout: 0.05
+
+# Tokenizer
+tokenizer:
+  _component_: torchtune.models.llama3.llama3_tokenizer
+  path: /tmp/Meta-Llama-3.1-8B/original/tokenizer.model
+  max_seq_len: null
+
+checkpointer:
+  _component_: torchtune.training.FullModelMetaCheckpointer
+  checkpoint_dir: /tmp/Meta-Llama-3.1-8B/
+  checkpoint_files: [
+    consolidated.00.pth
+  ]
+  recipe_checkpoint: null
+  output_dir: /tmp/Meta-Llama-3.1-8B/
+  model_type: LLAMA3
+
+resume_from_checkpoint: False
+save_adapter_weights_only: False
+
+# Dataset and Sampler
+dataset:
+  _component_: torchtune.datasets.alpaca_dataset
+seed: null
+shuffle: True
+batch_size: 2
+
+# Optimizer and Scheduler
+optimizer:
+  _component_: torch.optim.AdamW
+  weight_decay: 0.01
+  lr: 3e-4
+
+lr_scheduler:
+  _component_: torchtune.training.lr_schedulers.get_cosine_schedule_with_warmup
+  num_warmup_steps: 100
+
+loss:
+  _component_: torch.nn.CrossEntropyLoss
+
+# Training
+epochs: 1
+max_steps_per_epoch: null
+gradient_accumulation_steps: 16
+compile: False
+
+# Logging
+output_dir: /tmp/lora_finetune_output/
+metric_logger:
+  _component_: torchtune.training.metric_logging.DiskLogger
+  log_dir: ${output_dir}
+log_every_n_steps: 1
+log_peak_memory_stats: False
+
+# Environment
+device: cuda
+dtype: bf16
+enable_activation_checkpointing: False
+enable_activation_offloading: False

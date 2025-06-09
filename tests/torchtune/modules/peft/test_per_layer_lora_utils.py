@@ -49,6 +49,32 @@ class TestPerLayerLoRA:
         result = resolve_lora_value(config, "layers.2.attn.k_proj", default_value=24.0)
         assert result == 24.0
 
+    def test_resolve_lora_value_mlp_components(self):
+        """Test dict configuration with MLP component-level granularity."""
+        config = {
+            "layers.0.mlp.w1": 16,
+            "layers.0.mlp.w2": 8,
+            "layers.0.mlp.w3": 12,
+            "layers.1.mlp.w1": 24,
+        }
+        
+        # Test individual MLP components
+        result = resolve_lora_value(config, "layers.0.mlp.w1")
+        assert result == 16
+        
+        result = resolve_lora_value(config, "layers.0.mlp.w2")
+        assert result == 8
+        
+        result = resolve_lora_value(config, "layers.0.mlp.w3")
+        assert result == 12
+        
+        result = resolve_lora_value(config, "layers.1.mlp.w1")
+        assert result == 24
+        
+        # Test fallback for missing component
+        result = resolve_lora_value(config, "layers.1.mlp.w2", default_value=10)
+        assert result == 10
+
     def test_resolve_lora_value_dict_no_default_raises(self):
         """Test that missing layer without default raises ValueError."""
         config = {

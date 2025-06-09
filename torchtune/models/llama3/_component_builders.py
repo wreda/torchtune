@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional
+from typing import Optional, Union
 
 from torch import nn
 
@@ -265,22 +265,15 @@ def lora_llama3(
         )
 
         if apply_lora_to_mlp:
-            # Resolve layer-specific rank and alpha for MLP modules
-            mlp_rank = resolve_lora_value(
-                lora_rank, f"{layer_prefix}.mlp", default_value=8 if isinstance(lora_rank, dict) else None
-            )
-            mlp_alpha = resolve_lora_value(
-                lora_alpha, f"{layer_prefix}.mlp", default_value=16.0 if isinstance(lora_alpha, dict) else None
-            )
-            
             mlp = lora_llama3_mlp(
                 dim=embed_dim,
                 hidden_dim=hidden_dim,
-                lora_rank=mlp_rank,
-                lora_alpha=mlp_alpha,
+                lora_rank=lora_rank,  # Pass full config to mlp for per-component resolution
+                lora_alpha=lora_alpha,  # Pass full config to mlp for per-component resolution
                 quantize_base=quantize_base,
                 lora_dropout=lora_dropout,
                 use_dora=use_dora,
+                layer_idx=layer_idx,  # Pass layer index for name resolution
             )
         else:
             mlp = llama3_mlp(
@@ -512,37 +505,86 @@ def lora_llama3_mlp(
     *,
     dim: int,
     hidden_dim: int,
-    lora_rank: int,
-    lora_alpha: float,
+    lora_rank: Union[int, dict[str, int]],
+    lora_alpha: Union[float, dict[str, float]],
     lora_dropout: float = 0.0,
     quantize_base: bool = False,
     use_dora: bool = False,
+    layer_idx: Optional[int] = None,
 ) -> FeedForward:
+    """
+    Build a LoRA MLP layer with support for per-component rank and alpha configuration.
+    
+    Args:
+        dim (int): Input and output dimension of the MLP.
+        hidden_dim (int): Hidden dimension of the MLP.
+        lora_rank (Union[int, dict[str, int]]): Rank for LoRA. Can be a single int for uniform rank
+            across all components, or a dict mapping component names to ranks for per-component
+            configuration.
+        lora_alpha (Union[float, dict[str, float]]): Alpha for LoRA. Can be a single float for uniform
+            alpha across all components, or a dict mapping component names to alpha values for
+            per-component configuration.
+        lora_dropout (float): LoRA dropout probability. Default: 0.0.
+        quantize_base (bool): Whether to quantize base model parameters. Default: False.
+        use_dora (bool): Whether to use DoRA instead of LoRA. Default: False.
+        layer_idx (Optional[int]): Layer index for building layer-specific names when using
+            per-component LoRA configuration. Default: None.
+    
+    Returns:
+        FeedForward: MLP layer with LoRA applied to components.
+    """
+    from torchtune.modules.peft._utils import resolve_lora_value
+    
     adapter_cls = DoRALinear if use_dora else LoRALinear
+    
+    # Helper function to resolve rank and alpha for each MLP component
+    def get_component_params(component_name: str):
+        if layer_idx is not None:
+            layer_name = f"layers.{layer_idx}.mlp.{component_name}"
+        else:
+            layer_name = component_name
+            
+        rank = resolve_lora_value(
+            lora_rank, layer_name, default_value=8 if isinstance(lora_rank, dict) else None
+        )
+        alpha = resolve_lora_value(
+            lora_alpha, layer_name, default_value=16.0 if isinstance(lora_alpha, dict) else None
+        )
+        return rank, alpha
+
+    # Gate projection (w1)
+    w1_rank, w1_alpha = get_component_params("w1")
     gate_proj = adapter_cls(
         in_dim=dim,
         out_dim=hidden_dim,
-        rank=lora_rank,
-        alpha=lora_alpha,
+        rank=w1_rank,
+        alpha=w1_alpha,
         dropout=lora_dropout,
         quantize_base=quantize_base,
     )
+    
+    # Down projection (w2)
+    w2_rank, w2_alpha = get_component_params("w2")
     down_proj = adapter_cls(
         in_dim=hidden_dim,
         out_dim=dim,
-        rank=lora_rank,
-        alpha=lora_alpha,
+        rank=w2_rank,
+        alpha=w2_alpha,
         dropout=lora_dropout,
         quantize_base=quantize_base,
     )
+    
+    # Up projection (w3)
+    w3_rank, w3_alpha = get_component_params("w3")
     up_proj = adapter_cls(
         in_dim=dim,
         out_dim=hidden_dim,
-        rank=lora_rank,
-        alpha=lora_alpha,
+        rank=w3_rank,
+        alpha=w3_alpha,
         dropout=lora_dropout,
         quantize_base=quantize_base,
     )
+    
     return FeedForward(
         gate_proj=gate_proj,
         down_proj=down_proj,
