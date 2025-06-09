@@ -126,9 +126,18 @@ def llama3_mlp(dim: int, hidden_dim: int, quantize_base: bool = False) -> FeedFo
     """
     Build the MLP layer associated with the Llama model.
     """
-    gate_proj = nn.Linear(dim, hidden_dim, bias=False) if not quantize_base else FrozenNF4Linear(dim, hidden_dim, bias=False)
-    down_proj = nn.Linear(hidden_dim, dim, bias=False) if not quantize_base else FrozenNF4Linear(hidden_dim, dim, bias=False)
-    up_proj = nn.Linear(dim, hidden_dim, bias=False) if not quantize_base else FrozenNF4Linear(dim, hidden_dim, bias=False)
+    gate_proj = (
+        nn.Linear(dim, hidden_dim, bias=False) if not quantize_base
+        else FrozenNF4Linear(dim, hidden_dim, bias=False)
+    )
+    down_proj = (
+        nn.Linear(hidden_dim, dim, bias=False) if not quantize_base
+        else FrozenNF4Linear(hidden_dim, dim, bias=False)
+    )
+    up_proj = (
+        nn.Linear(dim, hidden_dim, bias=False) if not quantize_base
+        else FrozenNF4Linear(dim, hidden_dim, bias=False)
+    )
     return FeedForward(gate_proj=gate_proj, down_proj=down_proj, up_proj=up_proj)
 
 
@@ -195,7 +204,8 @@ def lora_llama3_1(
             per-layer configuration. Example: ``{"layers.0.attn.q_proj": 8, "layers.1.attn.v_proj": 16}``.
         lora_alpha (Union[float, dict[str, float]]): scaling factor for the low-rank approximation.
             Can be a single float for uniform alpha across all layers, or a dict mapping layer names
-            to alpha values for per-layer configuration. Example: ``{"layers.0.attn.q_proj": 16.0, "layers.1.attn.v_proj": 32.0}``.
+            to alpha values for per-layer configuration.
+            Example: ``{"layers.0.attn.q_proj": 16.0, "layers.1.attn.v_proj": 32.0}``.
         lora_dropout (float): LoRA dropout probability. Default: 0.0
         use_dora (bool): Whether to use DoRA layers instead of LoRA layers. Default is ``False``.
         quantize_base: (bool): Whether to quantize base model weights or not. Only applied to base

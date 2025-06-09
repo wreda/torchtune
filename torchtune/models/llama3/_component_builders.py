@@ -208,7 +208,8 @@ def lora_llama3(
             per-layer configuration. Example: ``{"layers.0.attn.q_proj": 8, "layers.1.attn.v_proj": 16}``.
         lora_alpha (Union[float, dict[str, float]]): scaling factor for the low-rank approximation.
             Can be a single float for uniform alpha across all layers, or a dict mapping layer names
-            to alpha values for per-layer configuration. Example: ``{"layers.0.attn.q_proj": 16.0, "layers.1.attn.v_proj": 32.0}``.
+            to alpha values for per-layer configuration.
+            Example: ``{"layers.0.attn.q_proj": 16.0, "layers.1.attn.v_proj": 32.0}``.
         lora_dropout (float): LoRA dropout probability. Default: 0.0
         use_dora (bool): Decompose the LoRA weight into magnitude and direction, as
             introduced in "DoRA: Weight-Decomposed Low-Rank Adaptation" (https://arxiv.org/abs/2402.09353).
@@ -245,7 +246,8 @@ def lora_llama3(
             lora_rank, f"{layer_prefix}.attn.{module_name}", default_value=8 if isinstance(lora_rank, dict) else None
         )
         attn_alpha_resolver = lambda module_name: resolve_lora_value(
-            lora_alpha, f"{layer_prefix}.attn.{module_name}", default_value=16.0 if isinstance(lora_alpha, dict) else None
+            lora_alpha, f"{layer_prefix}.attn.{module_name}",
+            default_value=16.0 if isinstance(lora_alpha, dict) else None
         )
 
         self_attn = lora_llama3_self_attention(
