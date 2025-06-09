@@ -9,6 +9,7 @@ from typing import Any, Generator, Literal, Optional, Protocol, runtime_checkabl
 
 import torch
 from torch import nn
+from omegaconf import OmegaConf
 from torchtune.utils._logging import deprecate_parameter
 
 # Modules from MultiHeadAttention that LoRA can be applied to
@@ -53,7 +54,7 @@ def resolve_lora_value(
         >>> resolve_lora_value(config, "layers.2.attn.q_proj", default_value=8)
         8
     """
-    if isinstance(value, dict):
+    if isinstance(value, dict) or OmegaConf.is_dict(value):
         # Try direct lookup first
         if layer_name in value:
             result = value[layer_name]
@@ -335,25 +336,15 @@ def get_merged_lora_ckpt(
     lora_modules = _get_lora_modules(state_dict)
     lora_moe_modules = _get_lora_moe_modules(state_dict)
     
-    print(f"DEBUG: rank type: {type(rank)}, value: {rank}")
-    print(f"DEBUG: alpha type: {type(alpha)}, value: {alpha}")
-    print(f"DEBUG: lora_modules: {lora_modules}")
-    print(f"DEBUG: lora_moe_modules: {lora_moe_modules}")
-    
     for module in lora_modules.union(lora_moe_modules):
-        print(f"DEBUG: Processing module: {module}")
-        
         # Resolve rank and alpha for this specific module
         # Use default values for backward compatibility when dictionaries are provided
         module_rank = resolve_lora_value(
-            rank, module, default_value=8 if isinstance(rank, dict) else None
+            rank, module, default_value=8 if (isinstance(rank, dict) or OmegaConf.is_dict(rank)) else None
         )
         module_alpha = resolve_lora_value(
-            alpha, module, default_value=16.0 if isinstance(alpha, dict) else None
+            alpha, module, default_value=16.0 if (isinstance(alpha, dict) or OmegaConf.is_dict(alpha)) else None
         )
-        
-        print(f"DEBUG: Resolved module_rank type: {type(module_rank)}, value: {module_rank}")
-        print(f"DEBUG: Resolved module_alpha type: {type(module_alpha)}, value: {module_alpha}")
 
         # TODO: we don't currently support DoRA for MoE layers
         if "experts" in module:
