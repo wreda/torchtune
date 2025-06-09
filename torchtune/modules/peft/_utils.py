@@ -15,6 +15,59 @@ from torchtune.utils._logging import deprecate_parameter
 LORA_ATTN_MODULES = Literal["q_proj", "k_proj", "v_proj", "output_proj"]
 
 
+def resolve_lora_value(
+    value: Union[int, float, dict[str, Union[int, float]]],
+    layer_name: str,
+    default_value: Optional[Union[int, float]] = None,
+) -> Union[int, float]:
+    """
+    Resolve a LoRA parameter value (rank or alpha) for a specific layer.
+
+    This function supports both backward-compatible single values and the new
+    per-layer dictionary configuration. If a dictionary is provided, it looks
+    up the layer-specific value. If not found, it falls back to the default value.
+
+    Args:
+        value (Union[int, float, dict[str, Union[int, float]]]): The LoRA parameter value.
+            Can be a single int/float (backward compatible) or a dict mapping layer names to values.
+        layer_name (str): The name of the layer to resolve the value for.
+        default_value (Optional[Union[int, float]]): Default value to use if layer_name
+            is not found in the dictionary. If None and layer_name is not found,
+            raises ValueError.
+
+    Returns:
+        Union[int, float]: The resolved value for the specified layer.
+
+    Raises:
+        ValueError: If value is a dict, layer_name is not found, and no default_value is provided.
+
+    Example:
+        >>> # Single value (backward compatible)
+        >>> resolve_lora_value(8, "layers.0.attn.q_proj")
+        8
+
+        >>> # Per-layer dictionary with fallback
+        >>> config = {"layers.0.attn.q_proj": 16, "layers.1.attn.v_proj": 32}
+        >>> resolve_lora_value(config, "layers.0.attn.q_proj")
+        16
+        >>> resolve_lora_value(config, "layers.2.attn.q_proj", default_value=8)
+        8
+    """
+    if isinstance(value, dict):
+        if layer_name in value:
+            return value[layer_name]
+        elif default_value is not None:
+            return default_value
+        else:
+            raise ValueError(
+                f"Layer '{layer_name}' not found in per-layer LoRA configuration "
+                f"and no default value provided. Available layers: {list(value.keys())}"
+            )
+    else:
+        # Single value - backward compatible behavior
+        return value
+
+
 @runtime_checkable
 class AdapterModule(Protocol):
     """
