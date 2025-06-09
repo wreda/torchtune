@@ -1,0 +1,30 @@
+# Example config showing backward compatibility - Llama3 8B  
+# This config uses the traditional single-value lora_rank and lora_alpha
+# and should work exactly as before with the new implementation.
+
+# Output directory 
+output_dir: /tmp/torchtune/llama3_8B/backward_compatible_lora
+
+# Model Arguments with traditional single-value LoRA configuration (backward compatible)
+model:
+  _component_: torchtune.models.llama3.lora_llama3_8b
+  lora_attn_modules: ['q_proj', 'v_proj', 'output_proj']
+  apply_lora_to_mlp: True
+  apply_lora_to_output: False
+  
+  # Traditional single-value configuration (backward compatible)
+  lora_rank: 8          # Applied to all LoRA layers uniformly
+  lora_alpha: 16        # Applied to all LoRA layers uniformly
+  lora_dropout: 0.0
+
+# Tokenizer (placeholder - would need actual path)
+tokenizer:
+  _component_: torchtune.models.llama3.llama3_tokenizer
+  path: /path/to/tokenizer.model
+  max_seq_len: null
+
+# Training configuration would go here...
+# (Dataset, optimizer, scheduler, etc.)
+
+# Note: This config should produce identical results to the original
+# implementation, demonstrating full backward compatibility.

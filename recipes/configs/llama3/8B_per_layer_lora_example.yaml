@@ -1,0 +1,42 @@
+# Example config for per-layer LoRA configuration - Llama3 8B
+# This demonstrates the new per-layer LoRA rank and alpha configuration
+# while maintaining backward compatibility with existing single-value configs.
+
+# Output directory 
+output_dir: /tmp/torchtune/llama3_8B/per_layer_lora
+
+# Model Arguments with per-layer LoRA configuration
+model:
+  _component_: torchtune.models.llama3.lora_llama3_8b
+  lora_attn_modules: ['q_proj', 'v_proj', 'output_proj']
+  apply_lora_to_mlp: True
+  apply_lora_to_output: False
+  
+  # Per-layer LoRA rank configuration - different ranks for different layers/projections
+  lora_rank:
+    layers.0.attn.q_proj: 16      # Higher rank for first layer q_proj
+    layers.0.attn.v_proj: 8       # Lower rank for first layer v_proj
+    layers.1.attn.q_proj: 12      # Medium rank for second layer q_proj
+    layers.1.attn.v_proj: 4       # Lowest rank for second layer v_proj
+    layers.2.mlp: 8               # MLP layer rank
+    # Layers not specified will use default fallback values
+  
+  # Per-layer LoRA alpha configuration - different scaling for different layers
+  lora_alpha:
+    layers.0.attn.q_proj: 32.0    # Higher alpha for first layer q_proj
+    layers.0.attn.v_proj: 16.0    # Lower alpha for first layer v_proj
+    layers.1.attn.q_proj: 24.0    # Medium alpha for second layer q_proj
+    layers.1.attn.v_proj: 8.0     # Lowest alpha for second layer v_proj
+    layers.2.mlp: 16.0            # MLP layer alpha
+    # Layers not specified will use default fallback values
+    
+  lora_dropout: 0.0
+
+# Tokenizer (placeholder - would need actual path)
+tokenizer:
+  _component_: torchtune.models.llama3.llama3_tokenizer
+  path: /path/to/tokenizer.model
+  max_seq_len: null
+
+# Training configuration would go here...
+# (Dataset, optimizer, scheduler, etc.)
